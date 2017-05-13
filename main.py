@@ -8,7 +8,7 @@ from direct.showbase.ShowBase import ShowBase
 from direct.actor.Actor import Actor
 # Import the main render pipeline class
 from rpcore import RenderPipeline
-from panda3d.core import load_prc_file_data
+from panda3d.core import load_prc_file_data, Fog
 
 class Application(ShowBase):
 	'''
@@ -18,7 +18,9 @@ class Application(ShowBase):
 	def __init__(self):
 		#Modify the Panda3D config on-the-fly
 		#In this case, edit the window title
-		load_prc_file_data("", "window-title PoultryGeist")
+		load_prc_file_data("", """window-title PoultryGeist
+								  threading-model Cull/Draw
+							   """)
 
 		# Construct and create the pipeline
 		self.render_pipeline = RenderPipeline()
@@ -88,12 +90,34 @@ class MenuScene(Scene):
 		self.models = {}
 		self.loader = app.loader
 		self.render_tree = app.render
+		fog = Fog("corn_fog")
+		fog.setColor(0.8,0.8, 0.8)
+		fog.setLinearRange(0, 320)
+		fog.setLinearFallback(45, 160, 320)
+		render.attachNewNode(fog)
+		render.setFog(fog)
+
+	def event_run(self, task):
+		pass
+
+
+class IntroScene(Scene):
+	'''
+	A subclass of the Scene class to handle the main menu
+	and all of it's required tasks + events
+	'''
+	def __init__(self, app):
+		self.models = {}
+		self.loader = app.loader
+		self.render_tree = app.render
 		self.add_model("resources/ground", scale=(5,5,5), key="ground")
-		self.add_model("resources/corn.egg", isActor=True, key="corn", anims={})
+		self.add_model("resources/corn.egg", (0,0,0), (0,0,0), key="Cornfield")
+		self.add_model("resources/corn.egg", parent="Cornfield", isActor=True, key="corn", anims={})
 		for x in range(25):
 			for z in range(25):
 				if (x-12)**2+(z-12)**2 > 25:
-					self.add_model("resources/corn.egg", (x*5, z*5, 0), instanceTo="corn")
+					self.add_model("resources/corn.egg", (x*5, z*5, 0), parent="Cornfield", instanceTo="corn")
+
 
 	def event_run(self, task):
 		pass
