@@ -48,20 +48,11 @@ class Application(ShowBase):
 
 		# Set the model quality, (low or high)
 		self.quality = "low"
-		print("[>] PoultryGeist:		Setting Model Resolution to {}".format(
+		print("[>] PoultryGeist:\t      Setting Model Resolution to {}".format(
 														self.quality.upper()))
 
 		# Set the time
 		self.render_pipeline.daytime_mgr.time = "20:15"
-
-		# Set the current viewing target
-		self.focus = LVector3(55, -55, 20)
-		self.heading = 180
-		self.pitch = 0
-		self.mousex = 0
-		self.mousey = 0
-		self.last = 0
-		self.mousebtn = [0, 0, 0]
 
 		# Turn off normal mouse controls
 		self.disableMouse()
@@ -76,9 +67,6 @@ class Application(ShowBase):
 		self.win.requestProperties(props)
 		self.camLens.setFov(90)
 
-		# Set the camera control task
-		taskMgr.add(self.controlCamera, "camera-task")
-
 		# Register the buttons for movement
 		self.w_button = KeyboardButton.ascii_key('w'.encode())
 		self.s_button = KeyboardButton.ascii_key('s'.encode())
@@ -88,57 +76,8 @@ class Application(ShowBase):
 		# Initialise the SceneManager
 		self.sceneMgr = SceneManager(self)
 
-		# Add the sceneMgr to run as a task
+		# Add the sceneMgr events to run as a task
 		taskMgr.add(self.sceneMgr.runSceneTasks, "scene-tasks")
-
-	def controlCamera(self, task):
-		'''
-		Control the camera to move more nicely
-		'''
-		# Get the change in time since the previous frame
-		elapsed = task.time - self.last
-		# Get the cursor and X, Y position of it
-		md = self.win.getPointer(0)
-		x = md.getX()
-		y = md.getY()
-		# Get the change in mouse position
-		if self.win.movePointer(0, int(self.width/2), int(self.height/2)):
-			# And set the heading and pitch accordingly
-			self.heading = self.heading - (x - self.width//2) * 0.2
-			self.pitch = self.pitch - (y - self.height//2) * 0.2
-		# Make the camera bob slightly
-		# TODO Make this only occur whilst moving and return to default when stopped.
-		self.pitch += math.sin(math.radians(task.time)*180) * 0.25 * (elapsed/0.167)
-
-		# Limit the camera pitch
-		if self.pitch < -75:
-			self.pitch = -75
-		if self.pitch > 75:
-			self.pitch = 75
-		# Rotate the camera accordingly
-		self.camera.setHpr(self.heading, self.pitch, 0)
-		# Get a 3D vector of the camera's direction
-		dir = self.camera.getMat().getRow3(1)
-		# If this is the first frame then set elapsed to 0
-		if self.last == 0:
-			elapsed = 0
-		# Alias the really long function to a short name
-		is_down = base.mouseWatcherNode.is_button_down
-		# Check for a w press and move forward
-		if is_down(self.w_button):
-			self.move(True, dir, elapsed)
-		# Check for an s press and move backwards
-		if is_down(self.s_button):
-			self.move(False, dir, elapsed)
-		# Check for a scene switch and switch the scene
-		if is_down(self.switch_button):
-			self.sceneMgr.load_scene(MenuScene(self) if isinstance(self.sceneMgr.scene, IntroScene) else IntroScene(self))
-
-		# TODO Dunno what this is for
-		self.focus = self.camera.getPos() + (dir * 5)
-		# Store the frame time for the next loop
-		self.last = task.time
-		return Task.cont
 
 	def move(self, forward, dir, elapsed):
 		'''
@@ -146,11 +85,11 @@ class Application(ShowBase):
 		For testing ONLY at the moment
 		'''
 		if forward:
-			self.focus += dir * elapsed * 30
+			self.sceneMgr.focus += dir * elapsed * 30
 		else:
-			self.focus -= dir * elapsed * 30
+			self.sceneMgr.focus -= dir * elapsed * 30
 		# Set the position of the camera based on the direction
-		self.camera.setPos(self.focus - (dir * 5))
+		self.camera.setPos(self.sceneMgr.focus - (dir * 5))
 
 class SceneManager:
 	'''
@@ -162,10 +101,20 @@ class SceneManager:
 		self.scene = None
 		self.load_scene(MenuScene(app))
 
+		# Set the current viewing target
+		self.focus = LVector3(55, -55, 20)
+		self.heading = 180
+		self.pitch = 0
+		self.mousex = 0
+		self.mousey = 0
+		self.last = 0
+		self.mousebtn = [0, 0, 0]
+
 	def load_scene(self, scene):
 		'''
 		Load a new scene into the game
 		'''
+		self.scene_frame = 1
 		# TODO Fix this to actually work
 		# if self.scene:
 		# 	for child in self.app.render.getChildren():
@@ -175,14 +124,71 @@ class SceneManager:
 		self.app.render = self.scene.render_tree
 		# for child in scene.render_tree.getChildren():
 		# 	child.reparentTo(self.app.render)
-		self.scene.init_scene()
 
 	def runSceneTasks(self, task):
 		'''
 		Run the event update for the current scene
 		'''
-		# print(task.time)
-		pass
+		if self.scene_frame == 2:
+			# Run the scene events immediately after loading the scene
+			self.scene.init_scene()
+		if self.scene.is_player_controlled:
+			# Run the camera control task if the scene allows for it
+			self.controlCamera(task)
+		# Iterate the current frame
+		self.scene_frame += 1
+		# Run the scenes standard events
+		return self.scene.event_run(task)
+
+	def controlCamera(self, task):
+		'''
+		Control the camera to move more nicely
+		'''
+		# Get the change in time since the previous frame
+		elapsed = task.time - self.last
+		# Get the cursor and X, Y position of it
+		md = self.app.win.getPointer(0)
+		x = md.getX()
+		y = md.getY()
+		# Get the change in mouse position
+		if self.app.win.movePointer(0, int(self.app.width/2), int(self.app.height/2)):
+			# And set the heading and pitch accordingly
+			self.heading = self.heading - (x - self.app.width//2) * 0.2
+			self.pitch = self.pitch - (y - self.app.height//2) * 0.2
+
+		# Limit the camera pitch
+		if self.pitch < -75:
+			self.pitch = -75
+		if self.pitch > 75:
+			self.pitch = 75
+		# Rotate the camera accordingly
+		self.app.camera.setHpr(self.heading, self.pitch, 0)
+		# Get a 3D vector of the camera's direction
+		dir = self.app.camera.getMat().getRow3(1)
+		# If this is the first frame then set elapsed to 0
+		if self.last == 0:
+			elapsed = 0
+		# Alias the really long function to a short name
+		is_down = base.mouseWatcherNode.is_button_down
+		# Check for a w press and move forward
+		if is_down(self.app.w_button):
+			# Make the camera bob slightly
+			# TODO Make this only occur whilst moving and return to default when stopped.
+			self.pitch += math.sin(math.radians(task.time)*180) * 0.25 * (elapsed/0.167)
+			self.app.move(True, dir, elapsed)
+		# Check for an s press and move backwards
+		if is_down(self.app.s_button):
+			self.app.move(False, dir, elapsed)
+		# Check for a scene switch and switch the scene
+		if is_down(self.app.switch_button):
+			self.load_scene(MenuScene(self.app) if isinstance(self.scene, IntroScene) else IntroScene(self.app))
+
+		# TODO Dunno what this is for
+		self.focus = self.app.camera.getPos() + (dir * 5)
+		# Store the frame time for the next loop
+		self.last = task.time
+		return Task.cont
+
 
 class Scene:
 	'''
@@ -235,6 +241,7 @@ class MenuScene(Scene):
 	'''
 	def __init__(self, app):
 		self.app = app
+		self.is_player_controlled = True
 		self.models = {}
 		self.loader = app.loader
 		self.render_tree = app.render
@@ -246,7 +253,7 @@ class MenuScene(Scene):
 		# render.setFog(fog)
 
 	def event_run(self, task):
-		pass
+		return Task.cont
 
 
 class IntroScene(Scene):
@@ -256,11 +263,15 @@ class IntroScene(Scene):
 	'''
 	def __init__(self, app):
 		self.app = app
+		self.is_player_controlled = True
 		self.models = {}
 		self.loader = app.loader
 		self.render_tree = app.render
 		# Add the ground model
 		self.add_model("resources/{}/ground".format(app.quality), scale=(8,8,8), key="ground")
+		# Add the barn
+		m = self.add_model("resources/{}/barn.bam".format(app.quality), scale=(1, 1, 1))
+		app.render_pipeline.prepare_scene(m)
 		# Create a corn model and add it in the bottom corner
 		self.add_model("resources/{}/corn.egg".format(app.quality), pos=(-62, -62, 0), isActor=True, key="corn", anims={})
 		# add the laser pointer to the scene
@@ -276,20 +287,21 @@ class IntroScene(Scene):
 		# Prepare the scene with the RenderPipeline
 		# (due to being exported from Blender with the BAM exporter)
 		app.render_pipeline.prepare_scene(m)
-		# TODO Add a test light
-		spot = SpotLight()
-		spot.pos = (20, 20, 15)
-		spot.set_color_from_temperature(1800)#(0.5, 0.3, 0)
-		spot.casts_shadows = True
-		spot.shadow_map_resolution = 1024
-		spot.energy = 20000
-		spot.radius = 2000000
-		spot.fov = 180
-		# spot.look_at(0, 0, 0)
-		app.render_pipeline.add_light(spot)
+		# Load the IES profile
+		sun = app.render_pipeline.load_ies_profile('data/ies_profiles/overhead.ies')
+		sun2 = SpotLight()
+		sun2.set_ies_profile(sun)
+		sun2.pos = (0, -70, 50)
+		sun2.color = (1, 1, 1)
+		sun2.casts_shadows = True
+		sun2.shadow_map_resolution = 128
+		sun2.look_at(0, 0, 0)
+		sun2.radius = 110
+		sun2.energy = 20000
+		app.render_pipeline.add_light(sun2)
 
 	def event_run(self, task):
-		pass
+		return Task.cont
 
 	def init_scene(self):
 		'''
@@ -300,13 +312,17 @@ class IntroScene(Scene):
 		# Create the controller for movement
 		self.app.controller = MovementController(self.app)
 		# Set the initial position
-		self.app.controller.set_initial_position(Vec3(0, -60, 2), Vec3(-180, 0, 0))
+		self.app.controller.set_initial_position(Vec3(0, -57, 2), Vec3(0, 12.5, 0))
 		# Run the setup on the movement controller
-		self.app.controller.setup()
-		sleep(1)
+		# self.app.controller.setup()
+		self.app.controller.update_task = self.app.addTask(self.null_func, 'meh')
 		# Play the pre-defined motion path
 		self.app.controller.play_motion_path(mopath, 3)
-		pass
+		# Remove the player movement controls
+		self.app.taskMgr.remove(self.app.controller.update_task)
+
+	def null_func(self):
+		return Task.cont
 
 # Run the application
 Application().run()
